@@ -15,11 +15,15 @@ library(corrplot)
 
 #Read the data
 Species_Data<-read_excel('Species-Data.xlsx',na='NA')
+Species_info<-read_excel('Species-Data.xlsx',na='NA',sheet = 2)
+
 corrdata<-na.omit(Species_Data)[,-(1:8)]
 #Changing the datatypes
+names(Species_info)<-c('FullName','Species')
 a<-suppressWarnings(data.frame(sapply(Species_Data[,1:8],function(x) as.factor(x))))
 a<-cbind(a,Species_Data[,-c(1:8)])
 original<-a
+fullbackup<-a
 #Omit the NAs
 a<-na.omit(a)  
 
@@ -43,8 +47,9 @@ a%>%dplyr::select(Family,Genus,Species)%>%unique->genspe
 genspe$Family<-as.character(genspe$Family)
 genspe$Genus<-as.character(genspe$Genus)
 genspe$Species<-as.character(genspe$Species)
-paste(genspe$Genus,genspe$Species)->genspe$FullName
-
+arrange(genspe,Family,Genus,Species)->genspe
+left_join(genspe,Species_info,by='Species')->genspe
+#save(regsubexh,regsubexhemb,regsubexhmol,regsubexhphy,regsubexhmorm,regsubexhves,species_boruta,borphy,borves,boremb,bormol,bormorm,file = 'Parameter.Rdata')
 load("Parameter.Rdata")
 #species_boruta<-Boruta(Species ~ ., data=Species_Data, doTrace=0)
 #regsubsets(Species~.,Species_Data[,-48],really.big = T,nvmax=11)->regsubexh
@@ -56,14 +61,14 @@ ui <- dashboardPage(
         sidebarMenu(
             menuItem('Introduction',tabName = 'dashintro'),
             menuItem('Data',tabName = 'dashdata'),
-            menuItem('Predict Species',tabName = 'dashpred'),
-            menuItem('Conclusion',tabName = 'dashconc')
+            menuItem('Predict Species',tabName = 'dashpred')
         )
     ),
     dashboardBody(
         tabItems(
             tabItem(tabName = 'dashintro',htmlOutput('intro')),
-            tabItem(tabName = 'dashdata',plotOutput('corrgraph'),htmlOutput('corrdetails')),
+            tabItem(tabName = 'dashdata',htmlOutput('corrdetails'),plotOutput('corrgraph'),
+                    selectInput('datafam','Select the family',choices = unique(genspe$Family)),DT::dataTableOutput('datatab')),
             tabItem(tabName = 'dashpred',
                     inputPanel(
                         radioButtons('filter',label = 'Do you have additional information?',choices = c('Family','No'),selected = 'No',inline = T,width = '250px'),
@@ -84,8 +89,7 @@ ui <- dashboardPage(
                     tabsetPanel(
                         tabPanel("Input", rHandsontableOutput('speciesdata')),
                         tabPanel("Predicted", DT::dataTableOutput("speciespredicted"))
-                    )),
-            tabItem(tabName = 'dashconc',htmlOutput('conc'))
+                    ))
         )
     )
 )
@@ -96,32 +100,21 @@ server <- function(input, output,session) {
     })
     
     observe(
-        if((input$filter=='No')&(input$Function == 'Random Forest')){
-            showModal(modalDialog(paste('It may take upto a minute to run the RandomForest algorithm. Please edit the data once the table and the line showing the accuracy becomes opaque. Click outside the box to continue'),size = 'm',easyClose = T,footer = NULL))   
-        }
-    )
-    
-    observe(
         if(input$filter == 'Family')
             showModal(modalDialog(paste('There are a few families which have only one species and so they are not displayed in the dropdown menu. Click on the notifications pane for more details on the families and species. Click outside the box to continue'),size = 'm',easyClose = T,footer = NULL))
             )
-    
-    observe(
-        if((input$filter == 'Family')&(input$parametermethod=='Boruta'))
-            showModal(modalDialog(paste('It may take upto a minute to run the Boruta function. Please start editing the data once the table and the line showing the accuracy becomes opaque. Click outside the box to continue'),size = 'm',easyClose = T,footer = NULL))   
-        )
-    
-    observe(
-        if((input$filter == 'Family')&(input$parametermethod=='Boruta'))
-            showNotification('Boruta takes time to run',duration = 10,type = 'warning')
-        )
-    
+
     output$corrgraph<-renderPlot({
-        corrplot(cor(corrdata),order = 'hclust',hclust.method = 'ward.D2',tl.cex=0.5,cl.cex = 0.6,method = 'square')
+        corrplot(cor(corrdata),order = 'hclust',hclust.method = 'ward.D2',tl.cex=0.5,cl.cex = 0.7,method = 'square')
     })
     
     output$corrdetails<-renderUI({
-        HTML('From the correlation plot, it is evident that many variables are highly correlated with other variables.')
+        HTML('The data has a total of 4685 observations with 81 variables. 145 observations has atleast one of the variables missing in the data.<br>From the correlation plot below, it is evident that many variables are highly correlated with other variables.')
+    })
+    
+    output$datatab<-DT::renderDataTable({
+        genspe%>%filter(Family %in% input$datafam)%>%dplyr::select(-1)->p
+        DT::datatable(p,options = list(pageLength=5))
     })
     
     basedata<-reactive({
@@ -134,6 +127,12 @@ server <- function(input, output,session) {
         }
     })
     
+    fildata<-reactive({
+        subset(fullbackup[,names(a)],Family==input$fam)[,c(6,9:58)]->pl
+        pl$Species<-factor(pl$Species) #To get rid of factor levels which don't belong in the selected family
+        pl
+    })
+    
     output$headernoti<-renderMenu({
         if((input$filter=='No')&(input$Function == 'Random Forest')){
         dropdownMenu(type = 'notifications',notificationItem(
@@ -144,13 +143,13 @@ server <- function(input, output,session) {
     
     output$headermess<-renderMenu({
         if(input$filter == 'Family'){
-            dropdownMenu(type = 'messages',messageItem(from = 'Thyropteridae',message = 'Thyroptera Thytri'),
-                         messageItem(from = 'Natalidae',message = 'Natalus Natstr'),
-                         messageItem(from = 'Noctilionidae',message = 'Noctilio Noclep'))}
+            dropdownMenu(type = 'messages',messageItem(from = 'Thyropteridae',message = 'Thyroptera tricolor'),
+                         messageItem(from = 'Natalidae',message = 'Natalus stramineus'),
+                         messageItem(from = 'Noctilionidae',message = 'Noctilio leporinus'))}
     })
     
     output$intro<-renderUI({HTML('Classifying the species of bats based on the information recorded on the sounds generated by bats.<br><br>
-                                 Known issues in the shiny app:<br>A warning will be displayed when you change the variable selection method from Boruta to Regsubsets for the first time.<br><br><br>
+                                 Known issues in the shiny app:<br>Based on the number of variables selected, QDA may have issues with rank deficiency in some cases. Select a different variable selection method or change the number of variables to overcome this issue.<br><br><br>
                                  The code and the data used can be viewed <a href="https://github.com/Sathishkumar1995/BatCalls">here</a>')})
 
     output$hidefilter<-renderUI({
@@ -191,7 +190,7 @@ server <- function(input, output,session) {
                     else if(input$fam=='Molossidae')
                         regsubexhmol
                     else if(input$fam=='Mormoopidae')
-                        regsubexhmor
+                        regsubexhmorm
                 }
             else if(input$regsubmethod=='Forward Selection')
                 regsubsets(Species~.,basedata()[,-48],nvmax=11,method = 'forward')
@@ -204,8 +203,17 @@ server <- function(input, output,session) {
     bor<-reactive({
         if(input$filter=='No')
             species_boruta
-        else if(input$filter=='Family')
-            Boruta(Species~.,basedata())
+        else if(input$filter=='Family'){
+            if(input$fam=='Phyllostomidae')
+                borphy
+            else if(input$fam=='Vespertilionidae')
+                borves
+            else if(input$fam=='Emballonuridae')
+                boremb
+            else if(input$fam=='Molossidae')
+                bormol
+            else if(input$fam=='Mormoopidae')
+                bormorm}
     })
     
     importantpar<-reactive({
@@ -222,13 +230,13 @@ server <- function(input, output,session) {
         if(input$filter=='No')
             na.omit(original[,c("Species",importantpar())])
         else if(input$filter=='Family')
-            basedata()[,c("Species",importantpar())]
+            na.omit(fildata()[,c("Species",importantpar())])
     })
     
     output$speciesdata <- renderRHandsontable({
         head(Species_Data1()[,-1],4)->displayspecies
         rownames(displayspecies)<-NULL #was getting errors if we added a new record
-        rhandsontable(displayspecies)
+        rhandsontable(displayspecies)%>%hot_validate_numeric(cols=c(1:ncol(displayspecies)))
     })
     
     ldafunctionspecies<-reactive({
@@ -240,11 +248,11 @@ server <- function(input, output,session) {
     })
     
     rfspecies<-reactive({
-        randomForest(Species~.,data = Species_Data1())
+        withProgress(randomForest(Species~.,data = Species_Data1()),value=1,message = 'Please wait while the algorithm runs in the background')
     })
     
     svmspecies<-reactive({
-        svm(Species~., data = Species_Data1())
+        withProgress(svm(Species~., data = Species_Data1()),value = 1,message = 'Please wait while the algorithm runs in the background')
     })
     
     observeEvent(input$runButton, {
@@ -285,12 +293,12 @@ server <- function(input, output,session) {
         else if(input$Function == 'SVM'){
             mean(predict(svmspecies())==Species_Data1()$Species)->errorspecies
             c('The model is ',round(errorspecies*100,2),'% accurate on the training data')}
-        else if(input$Function == 'KNN')
-            'You can edit the parameter k which has to be used in KNN'
-    })
-    
-    output$conc <- renderUI({HTML(paste('Random Forest performs better in most cases',sep = '<br>'))})
-    
+        else if(input$Function == 'KNN'){
+            knntrain<-scale(Species_Data1()[,-1])
+            knnresult<-knn(knntrain,knntrain,Species_Data1()[,1],k = input$knnk)
+            mean(knnresult == Species_Data1()$Species)->errorspecies
+            c('The model is ',round(errorspecies*100,2),'% accurate on the training data')}
+        })
 }
 
 # Run the application 
