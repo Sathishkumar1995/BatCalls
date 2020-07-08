@@ -90,7 +90,7 @@ ui <- dashboardPage(
                     
                     tabsetPanel(
                         tabPanel("Input", uiOutput('hidefile'),uiOutput('filedetails'),rHandsontableOutput('speciesdata')),
-                        tabPanel("Predicted", DT::dataTableOutput("speciespredicted"))
+                        tabPanel("Results",downloadButton('download','Download the result') ,DT::dataTableOutput("speciespredicted"))
                     ))
         )
     )
@@ -98,7 +98,7 @@ ui <- dashboardPage(
 
 server <- function(input, output,session) {
     observeEvent(input$instruct,{
-        showModal(modalDialog(paste('Select the classification method and the variable selection method along with the number of variables to be used from the dropdown boxes. You can edit the table displayed below or add new records and predict the species of the observations by clicking on the PREDICT button. The results can be viewd in the PREDICTED tab below.'),footer = modalButton('Okay')))
+        showModal(modalDialog(paste('Select the classification method and the variable selection method along with the number of variables to be used from the dropdown boxes. You can edit the table displayed below or add new records and predict the species of the observations by clicking on the PREDICT button. The results can be viewd in the RESULTS tab below.'),footer = modalButton('Okay')))
     })
     
     observe(
@@ -312,6 +312,12 @@ server <- function(input, output,session) {
     output$speciespredicted <- DT::renderDataTable({
         DT::datatable(values$data,options = list(pageLength=5))
     })  
+    
+    output$download<-downloadHandler(
+        filename = function(){"Result.csv"}, 
+        content = function(fname){
+            write.csv(values$data, fname)}
+    )
     
     output$specieserror<-renderText({
         if(input$Function == 'LDA'){
