@@ -86,8 +86,10 @@ ui <- dashboardPage(
                     actionButton('instruct',"Instructions"),
                     actionButton("runButton","Predict the Species")),
                     textOutput('specieserror'),
+                    radioButtons('file','Do you want to upload a csv file with the test data?',choices = c('Yes','No'),selected = 'No',inline = T),
+                    
                     tabsetPanel(
-                        tabPanel("Input", rHandsontableOutput('speciesdata')),
+                        tabPanel("Input", uiOutput('hidefile'),uiOutput('filedetails'),rHandsontableOutput('speciesdata')),
                         tabPanel("Predicted", DT::dataTableOutput("speciespredicted"))
                     ))
         )
@@ -152,6 +154,12 @@ server <- function(input, output,session) {
                                  Known issues in the shiny app:<br>Based on the number of variables selected, QDA may have issues with rank deficiency in some cases. Select a different variable selection method or change the number of variables to overcome this issue.<br><br><br>
                                  The code and the data used can be viewed <a href="https://github.com/Sathishkumar1995/BatCalls">here</a>')})
 
+    output$filedetails<-renderUI({
+        if(input$file=='Yes')
+        HTML("A sample file can be downloaded <a href=https://docs.google.com/spreadsheets/d/1jZFbaVDSbcdzQ5hZ7BLRDxHiea5R31etMLyQRCzDckQ/edit?usp=sharing>here</a>. The red highlighted cells in the sample data are the ones which are not highly correlated and they may be used in the classification
+             based on the number of variables selected. Please do not upload data with NAs")
+    })
+    
     output$hidefilter<-renderUI({
         if(input$filter=='Family')
             selectInput('fam',label = 'Select the Family',choices = unique(a$Family)[!unique(a$Family)%in%c("Natalidae",'Thyropteridae','Noctilionidae')])
@@ -162,12 +170,27 @@ server <- function(input, output,session) {
             sliderInput('knnk','Number of nearest neighbours to compare for KNN ', min=1,max=30,3)
     })
     
+    output$hidefile<-renderUI({
+        if(input$file=='Yes')
+            fileInput('infile','Upload a csv file',accept = c(
+                "text/csv",
+                "text/comma-separated-values,text/plain",
+                ".csv"))
+    })
+    
     output$hideregsub<-renderUI({
         if(input$parametermethod=='Regsubsets')
             selectInput('regsubmethod',label = 'Regsubsets variable searching method ',choices = c('Exhaustive','Forward Selection','Backward Selection','Sequential Replacement'),selected = 'Forward Selection')
     })
     
     values <- reactiveValues()
+    
+    inputdata<-reactive({
+        inputdatafrom<-input$infile
+        if (is.null(inputdatafrom))
+            return(NULL)
+        read_csv(inputdatafrom$datapath)
+    })
     
     regsubf<-reactive({
         if(input$filter=='No'){
@@ -234,9 +257,15 @@ server <- function(input, output,session) {
     })
     
     output$speciesdata <- renderRHandsontable({
+        if(input$file=='No'){
         head(Species_Data1()[,-1],4)->displayspecies
         rownames(displayspecies)<-NULL #was getting errors if we added a new record
         rhandsontable(displayspecies)%>%hot_validate_numeric(cols=c(1:ncol(displayspecies)))
+        }
+        # else{
+        #     head(inputdata()[,importantpar()],4)->displayspecies
+        #     rhandsontable(displayspecies)
+        # }
     })
     
     ldafunctionspecies<-reactive({
@@ -256,7 +285,11 @@ server <- function(input, output,session) {
     })
     
     observeEvent(input$runButton, {
-        values$data <-  hot_to_r(input$speciesdata)
+        if(input$file=='No')
+            values$data <-  hot_to_r(input$speciesdata)
+        else
+            values$data <- inputdata()
+        
         if(input$Function == 'LDA'){
             values$data<-cbind(genspe%>%filter(Species %in% as.character(predict(ldafunctionspecies(),values$data)$class))%>%dplyr::select(FullName),values$data)
         }else if(input$Function == 'QDA'){
@@ -277,7 +310,7 @@ server <- function(input, output,session) {
     })
     
     output$speciespredicted <- DT::renderDataTable({
-        values$data
+        DT::datatable(values$data,options = list(pageLength=5))
     })  
     
     output$specieserror<-renderText({
