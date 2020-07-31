@@ -1,9 +1,7 @@
 library(shiny)
-library(shinythemes)
 library(tidyverse)
 library(MASS)
 library(readxl)
-library(nnet)
 library(Boruta)
 library(rhandsontable)
 library(shinydashboard)
@@ -16,17 +14,17 @@ library(corrplot)
 #Read the data
 Species_Data<-read_excel('Species-Data.xlsx',na='NA')
 Species_info<-read_excel('Species-Data.xlsx',na='NA',sheet = 2)
-
 corrdata<-na.omit(Species_Data)[,-(1:8)]
+
 #Changing the datatypes
 names(Species_info)<-c('FullName','Species')
 a<-suppressWarnings(data.frame(sapply(Species_Data[,1:8],function(x) as.factor(x))))
 a<-cbind(a,Species_Data[,-c(1:8)])
 original<-a
 fullbackup<-a
+
 #Omit the NAs
 a<-na.omit(a)  
-
 fact<-a[,1:8]#factor variables
 nfact<-a[,-c(1:8)]#other variables
 
@@ -49,6 +47,7 @@ genspe$Genus<-as.character(genspe$Genus)
 genspe$Species<-as.character(genspe$Species)
 arrange(genspe,Family,Genus,Species)->genspe
 left_join(genspe,Species_info,by='Species')->genspe
+
 #save(regsubexh,regsubexhemb,regsubexhmol,regsubexhphy,regsubexhmorm,regsubexhves,species_boruta,borphy,borves,boremb,bormol,bormorm,file = 'Parameter.Rdata')
 load("Parameter.Rdata")
 #species_boruta<-Boruta(Species ~ ., data=Species_Data, doTrace=0)
@@ -72,6 +71,7 @@ ui <- dashboardPage(
             tabItem(tabName = 'dashpred',
                     inputPanel(
                         radioButtons('filter',label = 'Do you have additional information?',choices = c('Family','No'),selected = 'No',inline = T,width = '250px'),
+                        HTML('    '),
                         uiOutput('hidefilter')
                     ),
                     fluidRow(
@@ -89,7 +89,7 @@ ui <- dashboardPage(
                     radioButtons('file','Do you want to upload a csv file with the test data?',choices = c('Yes','No'),selected = 'No',inline = T),
                     
                     tabsetPanel(
-                        tabPanel("Input", uiOutput('hidefile'),uiOutput('filedetails'),rHandsontableOutput('speciesdata')),
+                        tabPanel("Input", uiOutput('hidefile'),uiOutput('filedetails'),uiOutput('samplehide'),rHandsontableOutput('speciesdata')),
                         tabPanel("Results",downloadButton('download','Download the result') ,DT::dataTableOutput("speciespredicted"))
                     ))
         )
@@ -98,7 +98,7 @@ ui <- dashboardPage(
 
 server <- function(input, output,session) {
     observeEvent(input$instruct,{
-        showModal(modalDialog(paste('Select the classification method and the variable selection method along with the number of variables to be used from the dropdown boxes. You can edit the table displayed below or add new records and predict the species of the observations by clicking on the PREDICT button. The results can be viewd in the RESULTS tab below.'),footer = modalButton('Okay')))
+        showModal(modalDialog(paste('Select the classification method and the variable selection method along with the number of variables to be used from the dropdown boxes. You can edit the table displayed below or add new records and predict the species of the observations by clicking on the PREDICT THE SPECIES button. The results can be viewd in the RESULTS tab below.'),footer = modalButton('Okay')))
     })
     
     observe(
@@ -111,7 +111,7 @@ server <- function(input, output,session) {
     })
     
     output$corrdetails<-renderUI({
-        HTML('The data has a total of 4685 observations with 81 variables. 145 observations has atleast one of the variables missing in the data.<br>From the correlation plot below, it is evident that many variables are highly correlated with other variables.')
+        HTML('Some additional information can be viewed <a href=https://public.tableau.com/profile/sathishkumar.ravichandran#!/vizhome/Thesis_15960196333830/Observationpercountry>here</a>.<br><br>The data has a total of 4685 observations with 81 variables. 145 observations has atleast one of the variables missing in the data.<br>From the correlation plot below, it is evident that many variables are highly correlated with other variables.')
     })
     
     output$datatab<-DT::renderDataTable({
@@ -143,6 +143,11 @@ server <- function(input, output,session) {
         ))}
     })
     
+    output$samplehide<-renderUI({
+        if(input$file=='Yes')
+        downloadButton('sample','Download a sample')
+    })
+    
     output$headermess<-renderMenu({
         if(input$filter == 'Family'){
             dropdownMenu(type = 'messages',messageItem(from = 'Thyropteridae',message = 'Thyroptera tricolor'),
@@ -156,7 +161,8 @@ server <- function(input, output,session) {
 
     output$filedetails<-renderUI({
         if(input$file=='Yes')
-        HTML("A sample file can be downloaded <a href=https://docs.google.com/spreadsheets/d/1jZFbaVDSbcdzQ5hZ7BLRDxHiea5R31etMLyQRCzDckQ/edit?usp=sharing>here</a>. The red highlighted cells in the sample data are the ones which are not highly correlated and they may be used in the classification
+        HTML("Select the feature selection method, the number of variables needed and download a sample dataset using the button below.<br>
+        A sample file with all the variables can be downloaded <a href=https://docs.google.com/spreadsheets/d/1jZFbaVDSbcdzQ5hZ7BLRDxHiea5R31etMLyQRCzDckQ/edit?usp=sharing>here</a>. The red highlighted cells in the sample data are the ones which are not highly correlated and they may be used in the classification
              based on the number of variables selected. Please do not upload data with NAs")
     })
     
@@ -267,6 +273,18 @@ server <- function(input, output,session) {
         #     rhandsontable(displayspecies)
         # }
     })
+    
+    samplefile<-reactive({
+        head(Species_Data1()[,-1],4)->displayspecies
+        rownames(displayspecies)<-NULL
+        displayspecies
+    })
+    
+    output$sample<-downloadHandler(
+        filename = function(){"Sample.csv"}, 
+        content = function(fname){
+            write.csv(samplefile(), fname)}
+    )
     
     ldafunctionspecies<-reactive({
         lda(Species~., data = Species_Data1())
